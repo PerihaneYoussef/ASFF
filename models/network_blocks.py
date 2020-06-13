@@ -44,7 +44,7 @@ class upsample(nn.Module):
 
     def extra_repr(self):
         if self.scale_factor is not None:
-            info = 'scale_factor=' + str(self.scale_factor) 
+            info = 'scale_factor=' + str(self.scale_factor)
         else:
             info = 'size=' + str(self.size)
         info += ', mode=' + self.mode
@@ -71,7 +71,7 @@ class DropBlock(nn.Module):
         self.kernel_size = (block_size, block_size)
         self.stride = (1, 1)
         self.padding = (block_size//2, block_size//2)
-    
+
     def reset(self, block_size, keep_prob):
         self.block_size = block_size
         self.keep_prob = keep_prob
@@ -82,14 +82,14 @@ class DropBlock(nn.Module):
 
     def calculate_gamma(self, x):
         return  (1-self.keep_prob) * x.shape[-1]**2/\
-                (self.block_size**2 * (x.shape[-1] - self.block_size + 1)**2) 
+                (self.block_size**2 * (x.shape[-1] - self.block_size + 1)**2)
 
     def forward(self, x):
         if (not self.training or self.keep_prob==1): #set keep_prob=1 to turn off dropblock
             return x
         if self.gamma is None:
             self.gamma = self.calculate_gamma(x)
-        if x.type() == 'torch.cuda.HalfTensor': #TODO: not fully support for FP16 now 
+        if x.type() == 'torch.cuda.HalfTensor': #TODO: not fully support for FP16 now
             FP16 = True
             x = x.float()
         else:
@@ -162,10 +162,10 @@ class RFBblock(nn.Module):
         x_0 = self.branch_0(x)
         x_1 = self.branch_1(x)
         x_2 = self.branch_2(x)
-        x_3 = self.branch_3(x)  
+        x_3 = self.branch_3(x)
         out = torch.cat((x_0,x_1,x_2,x_3),1)
         if self.residual:
-            out +=x 
+            out +=x
         return out
 
 
@@ -176,7 +176,7 @@ class FeatureAdaption(nn.Module):
             self.sep=True
         else:
             self.sep=False
-            self.conv_offset = nn.Conv2d(in_channels=2*n_anchors, 
+            self.conv_offset = nn.Conv2d(in_channels=2*n_anchors,
                     out_channels=2*9*n_anchors, groups = n_anchors, kernel_size=1,stride=1,padding=0)
             self.dconv = DeformConv2d(in_channels=in_ch, out_channels=out_ch, kernel_size=3, stride=1,
                     padding=1, deformable_groups=n_anchors)
@@ -292,6 +292,7 @@ class ASFF(nn.Module):
         self.vis= vis
 
 
+
     def forward(self, x_level_0, x_level_1, x_level_2):
         if self.level==0:
             level_0_resized = x_level_0
@@ -321,6 +322,102 @@ class ASFF(nn.Module):
         fused_out_reduced = level_0_resized * levels_weight[:,0:1,:,:]+\
                             level_1_resized * levels_weight[:,1:2,:,:]+\
                             level_2_resized * levels_weight[:,2:,:,:]
+
+        out = self.expand(fused_out_reduced)
+
+        if self.vis:
+            return out, levels_weight, fused_out_reduced.sum(dim=1)
+        else:
+            return out
+
+class Excitation_Network(nn.Module):
+  def __init__(self,channel_num,r):
+    super().__init__()
+    self.channel_num = channel_num
+    self.num_reduced_channels = channel_num//r
+    if self.num_reduced_channels == 0:
+      self.num_reduced_channels = 1
+    self.fc1 = nn.Linear(channel_num,self.num_reduced_channels)
+    self.fc2 = nn.Linear(self.num_reduced_channels,channel_num)
+    self.relu = nn.ReLU()
+    self.sigmoid = nn.Sigmoid()
+  def forward(self,x):
+    x = x.reshape(-1,self.channel_num)
+    x = self.relu(self.fc1(x))
+    x = self.sigmoid(self.fc2(x))
+    x = x.reshape(-1,self.channel_num,1,1)
+    return x
+
+class ASFF_Networks(nn.Module):
+    def __init__(self, level, r=4, rfb=False, vis=False):
+        super(ASFF_Networks, self).__init__()
+        self.level = level
+        self.dim = [512, 256, 256]
+        self.inter_dim = self.dim[self.level]
+        if level==0:
+            self.stride_level_1 = add_conv(256, self.inter_dim, 3, 2)
+            self.stride_level_2 = add_conv(256, self.inter_dim, 3, 2)
+            self.expand = add_conv(self.inter_dim, 1024, 3, 1)
+        elif level==1:
+            self.compress_level_0 = add_conv(512, self.inter_dim, 1, 1)
+            self.stride_level_2 = add_conv(256, self.inter_dim, 3, 2)
+            self.expand = add_conv(self.inter_dim, 512, 3, 1)
+        elif level==2:
+            self.compress_level_0 = add_conv(512, self.inter_dim, 1, 1)
+            self.expand = add_conv(self.inter_dim, 256, 3, 1)
+
+        compress_c = 8 if rfb else 16  #when adding rfb, we use half number of channels to save memory
+
+        self.weight_level_0 = add_conv(self.inter_dim, compress_c, 1, 1)
+        self.weight_level_1 = add_conv(self.inter_dim, compress_c, 1, 1)
+        self.weight_level_2 = add_conv(self.inter_dim, compress_c, 1, 1)
+
+        self.weight_levels = nn.Conv2d(compress_c*3, 3, kernel_size=1, stride=1, padding=0)
+        self.vis= vis
+
+        self.excitation_0 = Excitation_Network(self.dim[0],r)
+        self.excitation_1 = Excitation_Network(self.dim[1],r)
+        self.excitation_2 = Excitation_Network(self.dim[2],r)
+
+
+    def forward(self, x_level_0, x_level_1, x_level_2):
+        level_atten = None
+        if self.level==0:
+            level_atten = torch.mean(x_level_0,dim=(2,3)).reshape(x_level_0.shape[0],x_level_0.shape[1],1,1)
+            level_atten = self.excitation_0(level_atten)
+            level_0_resized = x_level_0
+            level_1_resized = self.stride_level_1(x_level_1)
+
+            level_2_downsampled_inter =F.max_pool2d(x_level_2, 3, stride=2, padding=1)
+            level_2_resized = self.stride_level_2(level_2_downsampled_inter)
+
+        elif self.level==1:
+            level_atten = torch.mean(x_level_1,dim=(2,3)).reshape(x_level_1.shape[0],x_level_1.shape[1],1,1)
+            level_atten = self.excitation_1(level_atten)
+            level_0_compressed = self.compress_level_0(x_level_0)
+            level_0_resized =F.interpolate(level_0_compressed, scale_factor=2, mode='nearest')
+            level_1_resized =x_level_1
+            level_2_resized =self.stride_level_2(x_level_2)
+        elif self.level==2:
+            level_atten = torch.mean(x_level_2,dim=(2,3)).reshape(x_level_2.shape[0],x_level_2.shape[1],1,1)
+            level_atten = self.excitation_2(level_atten)
+            level_0_compressed = self.compress_level_0(x_level_0)
+            level_0_resized =F.interpolate(level_0_compressed, scale_factor=4, mode='nearest')
+            level_1_resized =F.interpolate(x_level_1, scale_factor=2, mode='nearest')
+            level_2_resized =x_level_2
+
+        level_0_weight_v = self.weight_level_0(level_0_resized)
+        level_1_weight_v = self.weight_level_1(level_1_resized)
+        level_2_weight_v = self.weight_level_2(level_2_resized)
+        levels_weight_v = torch.cat((level_0_weight_v, level_1_weight_v, level_2_weight_v),1)
+        levels_weight = self.weight_levels(levels_weight_v)
+        levels_weight = F.softmax(levels_weight, dim=1)
+
+
+
+        fused_out_reduced = level_atten * level_0_resized * levels_weight[:,0:1,:,:]+\
+                            level_atten * level_1_resized * levels_weight[:,1:2,:,:]+\
+                            level_atten * level_2_resized * levels_weight[:,2:,:,:]
 
         out = self.expand(fused_out_reduced)
 
@@ -419,4 +516,3 @@ class ressepblock(nn.Module):
                 h = res(h)
             x = x + h if self.shortcut else h
         return x
-

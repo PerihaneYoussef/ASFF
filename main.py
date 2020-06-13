@@ -7,6 +7,7 @@ from dataset.cocodataset import *
 from dataset.vocdataset import *
 from dataset.data_augment import TrainTransform
 from dataset.dataloading import *
+from models.network_blocks import *
 
 import os
 import sys
@@ -28,7 +29,7 @@ import time
 import apex
 from utils.fp16_utils import FP16_Optimizer
 
-######## unlimit the resource in some dockers or cloud machines ####### 
+######## unlimit the resource in some dockers or cloud machines #######
 #import resource
 #rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 #resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
@@ -206,6 +207,12 @@ def main():
         ckpt = torch.load(args.checkpoint, map_location=cpu_device)
         model.load_state_dict(ckpt,strict=False)
         #model.load_state_dict(ckpt)
+
+    # Replacing the original ASFF with the hypernetwork blocks (3 element vector)
+    model.level_0_fusion = ASFF_Networks(level=0,rfb=args.rfb,vis=args.vis)
+    model.level_1_fusion = ASFF_Networks(level=1,rfb=args.rfb,vis=args.vis)
+    model.level_2_fusion = ASFF_Networks(level=2,rfb=args.rfb,vis=args.vis)
+
     if cuda:
         print("using cuda")
         torch.backends.cudnn.benchmark = True
@@ -220,7 +227,7 @@ def main():
             model = apex.parallel.DistributedDataParallel(model, delay_allreduce=True)
             #model = apex.parallel.DistributedDataParallel(model)
         else:
-            model = nn.DataParallel(model) 
+            model = nn.DataParallel(model)
 
     if args.tfboard and save_to_disk:
         print("using tfboard")
@@ -338,26 +345,26 @@ def main():
             block_size = [1, 3, 5]
             keep_p = [0.9, 0.9, 0.9]
             for i in range(len(Drop_layer)):
-                model.module.module_list[Drop_layer[i]].reset(block_size[i], keep_p[i])
+                model.module_list[Drop_layer[i]].reset(block_size[i], keep_p[i])
 
         if (epoch == 80 or (epoch == args.start_epoch and args.start_epoch > 80) ) and (args.dropblock) and backbone!='mobile':
             block_size = [3, 5, 7]
             keep_p = [0.9, 0.9, 0.9]
             for i in range(len(Drop_layer)):
-                model.module.module_list[Drop_layer[i]].reset(block_size[i], keep_p[i])
+                model.module_list[Drop_layer[i]].reset(block_size[i], keep_p[i])
 
         if (epoch == 150 or (epoch == args.start_epoch and args.start_epoch > 150)) and (args.dropblock) and backbone!='mobile':
             block_size = [7, 7, 7]
             keep_p = [0.9, 0.9, 0.9]
             for i in range(len(Drop_layer)):
-                model.module.module_list[Drop_layer[i]].reset(block_size[i], keep_p[i])
+                model.module_list[Drop_layer[i]].reset(block_size[i], keep_p[i])
 
 
         for iter_i,  (imgs, targets,img_info,idx) in enumerate(dataloader):
             #evaluation
             if ((epoch % args.eval_interval == 0)and epoch > args.start_epoch and iter_i == 0) or args.test:
                 if not args.test and save_to_disk:
-                    torch.save(model.module.state_dict(), os.path.join(args.save_dir,
+                    torch.save(model.state_dict(), os.path.join(args.save_dir,
                             save_prefix+'_'+repr(epoch)+'.pth'))
 
                 if args.distributed:
@@ -366,7 +373,7 @@ def main():
                 if args.distributed:
                     distributed_util.synchronize()
                 if args.test:
-                    sys.exit(0) 
+                    sys.exit(0)
                 model.train()
                 if args.tfboard and save_to_disk:
                     tblogger.add_scalar('val/COCOAP50', ap50, epoch)
@@ -455,9 +462,9 @@ def main():
 
         epoch +=1
     if not args.test and save_to_disk:
-        torch.save(model.module.state_dict(), os.path.join(args.save_dir,
+        torch.save(model.state_dict(), os.path.join(args.save_dir,
             "yolov3_"+args.dataset+'_Final.pth'))
-    
+
     if args.distributed:
         distributed_util.synchronize()
     ap50_95, ap50 = evaluator.evaluate(model, args.half)
