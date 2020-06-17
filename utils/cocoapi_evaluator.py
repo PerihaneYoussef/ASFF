@@ -34,7 +34,7 @@ class COCOAPIEvaluator():
     All the data in the val2017 dataset are processed \
     and evaluated by COCO API.
     """
-    def __init__(self, data_dir, img_size, confthre, nmsthre, testset=False, voc=False, vis=False):
+    def __init__(self, data_dir, img_size, confthre, nmsthre, testset=False, voc=False, vis=False,classes=COCO_CLASSES):
         """
         Args:
             data_dir (str): dataset root directory
@@ -60,8 +60,9 @@ class COCOAPIEvaluator():
                                    json_file=json_f,
                                    preproc = ValTransform(rgb_means=(0.485, 0.456, 0.406),std=(0.229, 0.224, 0.225)),
                                    name=name,
-                                   voc = voc)
-
+                                   voc = voc,
+                                   classes=classes)
+        self.num_classes = len(classes)
         self.num_images = len(self.dataset)
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset, batch_size=1, shuffle=False, num_workers=0)
@@ -101,7 +102,7 @@ class COCOAPIEvaluator():
         else:
             dis_indices = indices
         progress_bar = tqdm if distributed_util.is_main_process() else iter
-        num_classes = 80 if not self.voc else 20
+        num_classes = self.num_classes
 
         inference_time=0
         nms_time=0
@@ -149,7 +150,7 @@ class COCOAPIEvaluator():
                 A = {"image_id": id_, "category_id": label, "bbox": bboxes[ind].numpy().tolist(),
                  "score": scores[ind].numpy().item(), "segmentation": []} # COCO json format
                 data_dict.append(A)
-            
+
             if self.vis:
                 o_img,_,_,_  = self.dataset.pull_item(i)
                 make_vis('COCO', i, o_img, fuse_weights, fused_f)
@@ -206,4 +207,3 @@ class COCOAPIEvaluator():
             return cocoEval.stats[0], cocoEval.stats[1]
         else:
             return 0, 0
-

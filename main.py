@@ -123,6 +123,8 @@ def main():
     random_resize = cfg['TRAIN']['RANDRESIZE']
     input_size = (cfg['TRAIN']['IMGSIZE'],cfg['TRAIN']['IMGSIZE'])
     test_size = (args.test_size,args.test_size)
+    classes_to_use = cfg['TRAIN']['CLASSES']
+    num_c = cfg['TRAIN']['NUM_CLASSES']
     steps = (180, 240) # for no cos lr shedule training
 
 
@@ -134,8 +136,9 @@ def main():
                   data_dir='data/COCO/',
                   img_size=input_size,
                   preproc=TrainTransform(rgb_means=(0.485, 0.456, 0.406),std=(0.229, 0.224, 0.225),max_labels=50),
-                  debug=args.debug)
-        num_class = 80
+                  debug=args.debug,
+                  classes=classes_to_use)
+        num_class = num_c # Overridden from the default value of 80
     elif args.dataset == 'VOC':
         train_sets = [('2007', 'trainval'), ('2012', 'trainval')]
         dataset = VOCDetection(root='data/VOC',
@@ -262,7 +265,8 @@ def main():
                     confthre=cfg['TEST']['CONFTHRE'],
                     nmsthre=cfg['TEST']['NMSTHRE'],
                     testset=args.testset,
-                    vis=args.vis)
+                    vis=args.vis,
+                    classes=classes_to_use)
 
     elif args.dataset == 'VOC':
         '''

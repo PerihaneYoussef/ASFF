@@ -29,7 +29,7 @@ class COCODataset(Dataset):
     COCO dataset class.
     """
     def __init__(self, data_dir='data/COCO', json_file='instances_train2017.json',
-                 name='train2017', img_size=(416,416), preproc=None, debug=False, voc=False):
+                 name='train2017', img_size=(416,416), preproc=None, debug=False, voc=False,classes=COCO_CLASSES):
         """
         COCO dataset initialization. Annotation data are read into memory by COCO API.
         Args:
@@ -48,12 +48,14 @@ class COCODataset(Dataset):
             self.coco = COCO(self.data_dir+'VOC2007/Annotations/'+self.json_file)
         else:
             self.coco = COCO(self.data_dir+'annotations/'+self.json_file)
-        self.ids = self.coco.getImgIds()
+
+        self.classes = classes
+        self.class_ids = sorted(self.coco.getCatIds(catNms=classes))
+        cats = self.coco.loadCats(self.coco.getCatIds(catNms=classes))
+        self.ids = self.coco.getImgIds(catIds=self.class_ids)
         if debug:
             self.ids = self.ids[1:2]
             print("debug mode...", self.ids)
-        self.class_ids = sorted(self.coco.getCatIds())
-        cats = self.coco.loadCats(self.coco.getCatIds())
         self._classes = tuple([c['name'] for c in cats])
         self.name = name
         self.max_labels = 50
@@ -70,7 +72,7 @@ class COCODataset(Dataset):
         im_ann = self.coco.loadImgs(id_)[0]
         width = im_ann['width']
         height = im_ann['height']
-        anno_ids = self.coco.getAnnIds(imgIds=[int(id_)], iscrowd=None)
+        anno_ids = self.coco.getAnnIds(imgIds=[int(id_)],catIds=self.class_ids, iscrowd=None)
         annotations = self.coco.loadAnns(anno_ids)
 
         # load image and preprocess
