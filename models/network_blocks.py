@@ -349,7 +349,7 @@ class Excitation_Network(nn.Module):
     return x
 
 class ASFF_Networks(nn.Module):
-    def __init__(self, level, r=4, rfb=False, vis=False):
+    def __init__(self, level, r=4, rfb=False, vis=False,extra_conv=True):
         super(ASFF_Networks, self).__init__()
         self.level = level
         self.dim = [512, 256, 256]
@@ -368,9 +368,14 @@ class ASFF_Networks(nn.Module):
 
         compress_c = 8 if rfb else 16  #when adding rfb, we use half number of channels to save memory
 
-        self.weight_level_0 = add_conv(self.inter_dim, compress_c, 1, 1)
-        self.weight_level_1 = add_conv(self.inter_dim, compress_c, 1, 1)
-        self.weight_level_2 = add_conv(self.inter_dim, compress_c, 1, 1)
+        if extra_conv:
+          self.weight_level_0 = nn.Sequential(*[add_conv(self.inter_dim, compress_c*4, 3, 1),add_conv(compress_c*4, compress_c, 1, 1)])
+          self.weight_level_1 = nn.Sequential(*[add_conv(self.inter_dim, compress_c*4, 3, 1),add_conv(compress_c*4, compress_c, 1, 1)])
+          self.weight_level_2 = nn.Sequential(*[add_conv(self.inter_dim, compress_c*4, 3, 1),add_conv(compress_c*4, compress_c, 1, 1)])
+        else:
+          self.weight_level_0 = add_conv(self.inter_dim, compress_c, 1, 1)
+          self.weight_level_1 = add_conv(self.inter_dim, compress_c, 1, 1)
+          self.weight_level_2 = add_conv(self.inter_dim, compress_c, 1, 1)
 
         self.weight_levels = nn.Conv2d(compress_c*3, 3, kernel_size=1, stride=1, padding=0)
         self.vis= vis

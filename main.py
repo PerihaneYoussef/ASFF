@@ -75,6 +75,10 @@ def parse_args():
                         help='no weight decay for bias')
     parser.add_argument('--vis', dest='vis', action='store_true', default=False,
                         help='visualize fusion weight and detection results')
+    parser.add_argument('--excitation_net', dest='excitation_net', action='store_true', default=False,
+                        help='Use the extra squeeze and excitation network added')
+    parser.add_argument('--extra_conv', dest='extra_conv', action='store_true', default=False,
+                        help='Use an extra 3x3 convolution to get the weights (works only if using excitation network)')
     parser.add_argument('--use_cuda', type=bool, default=True)
     parser.add_argument('--debug', action='store_true', default=False,
                         help='debug mode where only one image is trained')
@@ -212,9 +216,10 @@ def main():
         #model.load_state_dict(ckpt)
 
     # Replacing the original ASFF with the hypernetwork blocks (3 element vector)
-    model.level_0_fusion = ASFF_Networks(level=0,rfb=args.rfb,vis=args.vis)
-    model.level_1_fusion = ASFF_Networks(level=1,rfb=args.rfb,vis=args.vis)
-    model.level_2_fusion = ASFF_Networks(level=2,rfb=args.rfb,vis=args.vis)
+    if args.excitation_net:
+        model.level_0_fusion = ASFF_Networks(level=0,rfb=args.rfb,vis=args.vis,extra_conv=args.extra_conv)
+        model.level_1_fusion = ASFF_Networks(level=1,rfb=args.rfb,vis=args.vis,extra_conv=args.extra_conv)
+        model.level_2_fusion = ASFF_Networks(level=2,rfb=args.rfb,vis=args.vis,extra_conv=args.extra_conv)
 
     if cuda:
         print("using cuda")
