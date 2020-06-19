@@ -52,7 +52,12 @@ class COCODataset(Dataset):
         self.classes = classes
         self.class_ids = sorted(self.coco.getCatIds(catNms=classes))
         cats = self.coco.loadCats(self.coco.getCatIds(catNms=classes))
-        self.ids = self.coco.getImgIds(catIds=self.class_ids)
+
+        self.ids = []
+        for i in self.class_ids:
+          self.ids += self.coco.getImgIds(catIds=[i])
+        self.ids = list(set(self.ids))
+        
         if debug:
             self.ids = self.ids[1:2]
             print("debug mode...", self.ids)
