@@ -92,6 +92,7 @@ def main():
     """
     YOLOv3 trainer. See README for details.
     """
+    file = open("loggingfile.txt", "w")
     args = parse_args()
     print("Setting Arguments.. : ", args)
 
@@ -439,6 +440,15 @@ def main():
                  sum(cls_loss for cls_loss in loss_dict_reduced['cls_losses']).item(),
                  input_size[0], end-start),
                 flush=True)
+                file.write('[Epoch %d/%d][Iter %d/%d][lr %.6f]'
+                    '[Loss: anchor %.2f, iou %.2f, l1 %.2f, conf %.2f, cls %.2f, imgsize %d, time: %.2f] \n'
+                % (epoch, epochs, iter_i, epoch_size, tmp_lr,
+                 sum(anchor_loss for anchor_loss in loss_dict_reduced['anchor_losses']).item(),
+                 sum(iou_loss for iou_loss in loss_dict_reduced['iou_losses']).item(),
+                 sum(l1_loss for l1_loss in loss_dict_reduced['l1_losses']).item(),
+                 sum(conf_loss for conf_loss in loss_dict_reduced['conf_losses']).item(),
+                 sum(cls_loss for cls_loss in loss_dict_reduced['cls_losses']).item(),
+                 input_size[0], end-start)) 
 
                 start = time.time()
                 if args.tfboard and save_to_disk:
